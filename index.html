@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Mail - Decrypt Message</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:850px;margin:35px auto;padding:0 18px;background:#f4f6f8;color:#20242a}
+.card{background:white;padding:26px;border-radius:12px;box-shadow:0 3px 18px #0001}
+textarea,input{box-sizing:border-box;width:100%;padding:12px;margin:8px 0 16px;border:1px solid #cbd2d9;border-radius:7px;font-size:15px}
+textarea{min-height:180px;resize:vertical}
+button{background:#1769aa;color:white;border:0;padding:12px 20px;border-radius:7px;cursor:pointer;font-size:15px}
+#status{margin-top:15px;white-space:pre-wrap}
+.note{color:#555;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>🔐 Secure Mail - Decrypt Message</h1>
+<p class="note">Paste the encrypted message copied from Gmail, then enter the passphrase shared with you by the sender.</p>
+<label>Encrypted message</label>
+<textarea id="cipher" placeholder="Paste the complete SECUREMAIL1:... text here"></textarea>
+<label>Shared encryption passphrase</label>
+<input id="pass" type="password" autocomplete="off" placeholder="Enter passphrase">
+<button id="decrypt">Decrypt message</button>
+<h3>Decrypted message</h3>
+<textarea id="plain" readonly placeholder="Your decrypted message will appear here"></textarea>
+<div id="status" role="status"></div>
+<p class="note"><b>Privacy:</b> Decryption is performed locally in this browser page using Web Crypto. The message and passphrase are not sent to a server. Use a trusted device and close the page when finished.</p>
+</div>
+<script>
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+document.getElementById('decrypt').addEventListener('click', async () => {
+  const status = document.getElementById('status');
+  const output = document.getElementById('plain');
+  output.value = '';
+  status.textContent = 'Decrypting...';
+  try {
+    const raw = document.getElementById('cipher').value.trim();
+    const pass = document.getElementById('pass').value;
+    if (!raw.startsWith('SECUREMAIL1:')) throw new Error('Unrecognized encrypted message format.');
+    if (!pass) throw new Error('Enter the shared passphrase.');
+    const packed = raw.slice('SECUREMAIL1:'.length);
+    const envelope = JSON.parse(new TextDecoder().decode(fromB64(packed)));
+    if (envelope.version !== '1' || envelope.algorithm !== 'AES-256-GCM' || envelope.kdf !== 'PBKDF2-SHA256')
+      throw new Error('Unsupported encryption format.');
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      {name:'PBKDF2', salt:fromB64(envelope.salt), iterations:envelope.iterations, hash:'SHA-256'},
+      material, {name:'AES-GCM', length:256}, false, ['decrypt']
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:fromB64(envelope.nonce)}, key, fromB64(envelope.ciphertext)
+    );
+    output.value = new TextDecoder().decode(decrypted);
+    status.textContent = 'Decryption successful.';
+  } catch (e) {
+    status.textContent = 'Could not decrypt: ' + (e.message || e) + '. Check the passphrase and make sure the full encrypted text was copied.';
+  }
+});
+</script>
+</body>
+</html>
